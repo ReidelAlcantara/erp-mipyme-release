@@ -61,6 +61,19 @@ jobs:
       - name: Preparar MSBuild (Visual Studio 2022)
         uses: microsoft/setup-msbuild@v2
 
+      - name: Regenerar autolinking de módulos Windows
+        working-directory: fuente
+        shell: powershell
+        # Genera AutolinkedNativeModules.g.* en el propio Windows (el comando
+        # solo funciona ahí: consulta el registro). Los archivos commitados
+        # vienen de Linux y el --check interno de MSBuild detectaría divergencia
+        # (error 3003) porque react-native-screens sí tiene implementación
+        # Windows y debe quedar referenciada.
+        run: >
+          npx --yes @react-native-community/cli autolink-windows
+          --sln "windows\ErpMipyme.sln"
+          --proj "windows\ErpMipyme\ErpMipyme.vcxproj"
+
       - name: Compilar, empaquetar y firmar MSIX (MSBuild Release x64)
         working-directory: fuente
         shell: powershell
