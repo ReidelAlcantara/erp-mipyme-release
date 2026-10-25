@@ -64,8 +64,11 @@ jobs:
       - name: Compilar, empaquetar y firmar MSIX (MSBuild Release x64)
         working-directory: fuente
         shell: powershell
+        # /restore: Folly (RNW) trae Boost 1.83.0.0 y otras dependencias vía
+        # NuGet PackageReference; sin restaurarlas falla C1083 (boost/*.hpp).
         run: >
           msbuild "windows\ErpMipyme.sln"
+          /restore
           /p:Configuration=Release
           /p:Platform=x64
           /p:AppxBundle=Never
