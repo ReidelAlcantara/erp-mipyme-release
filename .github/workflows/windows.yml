@@ -74,6 +74,23 @@ jobs:
           --sln "windows\ErpMipyme.sln"
           --proj "windows\ErpMipyme\ErpMipyme.vcxproj"
 
+      - name: Restaurar NuGet packages.config de react-native-screens
+        working-directory: fuente
+        shell: powershell
+        # RNScreens usa packages.config (CppWinRT 2.0.200316.3) que el
+        # /restore integrado de MSBuild NO cubre (solo PackageReference).
+        # El vcxproj lo espera en $(SolutionDir)packages = windows\packages.
+        run: |
+          $nuget = Get-Command nuget -ErrorAction SilentlyContinue
+          if (-not $nuget) {
+            Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" -OutFile "nuget.exe"
+            $nugetExe = "$PWD\nuget.exe"
+          } else { $nugetExe = "nuget" }
+          Write-Host "Usando nuget: $nugetExe"
+          & $nugetExe restore "node_modules\react-native-screens\windows\RNScreens\packages.config" -PackagesDirectory "windows\packages" -NonInteractive
+          if ($LASTEXITCODE -ne 0) { throw "nuget restore falló con código $LASTEXITCODE" }
+          Get-ChildItem "windows\packages" | Select-Object -ExpandProperty Name
+
       - name: Compilar, empaquetar y firmar MSIX (MSBuild Release x64)
         working-directory: fuente
         shell: powershell
