@@ -220,7 +220,7 @@ jobs:
           - Guía completa en el archivo adjunto INSTRUCCIONES-INSTALACION-WINDOWS.md.
           - Nota: compilación experimental; la sincronización de datos y la impresión ESC/POS usan módulos nativos con soporte establecido actualmente en Android.
           EOF
-          gh release edit "$ETIQUETA" --notes-file cuerpo-actual.md
+          gh release edit "$ETIQUETA" --repo "$REPO" --notes-file cuerpo-actual.md
 
       - name: Conservar MSIX como artefacto del flujo de trabajo
         uses: actions/upload-artifact@v4
