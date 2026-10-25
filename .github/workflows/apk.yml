@@ -73,25 +73,27 @@ jobs:
           keyPassword=${KEYSTORE_PASSWORD}
           PROPS
           cat > android/release-signing.gradle <<'GRADLE'
+          // Firma de distribución del ERP MIPYME (APK de producción).
+          // Se aplica DURANTE la evaluación de app/build.gradle: AGP 8+ no
+          // permite añadir signingConfigs dentro de afterEvaluate
+          // ("It is too late to add new signing configs").
           def ksPropsFile = rootProject.file("keystore.properties")
           def ksFile = rootProject.file("app/erp-distribucion.keystore")
           if (ksPropsFile.exists() && ksFile.exists()) {
               def ksProps = new Properties()
               ksPropsFile.withInputStream { ksProps.load(it) }
-              afterEvaluate {
-                  android {
-                      signingConfigs {
-                          release {
-                              storeFile ksFile
-                              storePassword ksProps["storePassword"]
-                              keyAlias ksProps["keyAlias"]
-                              keyPassword ksProps["keyPassword"]
-                          }
+              android {
+                  signingConfigs {
+                      distribucion {
+                          storeFile ksFile
+                          storePassword ksProps["storePassword"]
+                          keyAlias ksProps["keyAlias"]
+                          keyPassword ksProps["keyPassword"]
                       }
-                      buildTypes {
-                          release {
-                              signingConfig signingConfigs.release
-                          }
+                  }
+                  buildTypes {
+                      release {
+                          signingConfig signingConfigs.distribucion
                       }
                   }
               }
