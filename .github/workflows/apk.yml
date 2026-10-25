@@ -1,0 +1,138 @@
+# Compila el APK Android de producción del ERP MIPYME y lo adjunta a la release.
+#
+# Estrategia (validada localmente paso a paso):
+# 1. Descarga el código del repositorio PRIVADO (secret REPO_TOKEN).
+# 2. Genera el proyecto base oficial de React Native 0.75.4 (CLI 14.1.2).
+# 3. Superpone el código del ERP (src/, configs, backend, docs) sobre la base.
+# 4. npm ci (lockfile reproducible) y firma de distribución desde secrets.
+# 5. ./gradlew assembleRelease -> APK firmado -> se adjunta a la release indicada.
+name: Compilar APK Android
+
+on:
+  workflow_dispatch:
+    inputs:
+      etiqueta:
+        description: 'Etiqueta de la release donde adjuntar el APK (p. ej. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  apk-android:
+    name: Construir APK de producción firmado
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Descargar código fuente (repositorio privado)
+        uses: actions/checkout@v4
+        with:
+          repository: ReidelAlcantara/erp-mipyme
+          token: ${{ secrets.REPO_TOKEN }}
+          path: fuente
+
+      - name: Instalar Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: fuente/package-lock.json
+
+      - name: Instalar JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Crear proyecto base React Native 0.75.4
+        run: npx -y @react-native-community/cli@14.1.2 init ErpMipyme --version 0.75.4 --skip-install --skip-git-init --pm npm
+
+      - name: Superponer el código del ERP sobre la base
+        run: |
+          cd ErpMipyme
+          rm -rf __tests__ .eslintrc.js .prettierrc.js Gemfile README.md .bundle
+          rsync -a --exclude node_modules --exclude .git ../fuente/ ./
+          echo '=== Raíz del proyecto compilado ==='
+          ls -la
+
+      - name: Instalar dependencias del ERP (npm ci)
+        working-directory: ErpMipyme
+        run: npm ci
+
+      - name: Configurar firma de distribución
+        working-directory: ErpMipyme
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > android/app/erp-distribucion.keystore
+          cat > android/keystore.properties <<PROPS
+          storePassword=${KEYSTORE_PASSWORD}
+          keyAlias=erpmipyme
+          keyPassword=${KEYSTORE_PASSWORD}
+          PROPS
+          cat > android/release-signing.gradle <<'GRADLE'
+          def ksPropsFile = rootProject.file("keystore.properties")
+          def ksFile = rootProject.file("app/erp-distribucion.keystore")
+          if (ksPropsFile.exists() && ksFile.exists()) {
+              def ksProps = new Properties()
+              ksPropsFile.withInputStream { ksProps.load(it) }
+              afterEvaluate {
+                  android {
+                      signingConfigs {
+                          release {
+                              storeFile ksFile
+                              storePassword ksProps["storePassword"]
+                              keyAlias ksProps["keyAlias"]
+                              keyPassword ksProps["keyPassword"]
+                          }
+                      }
+                      buildTypes {
+                          release {
+                              signingConfig signingConfigs.release
+                          }
+                      }
+                  }
+              }
+          }
+          GRADLE
+          echo 'apply from: "../release-signing.gradle"' >> android/app/build.gradle
+          echo 'Firma de distribución configurada.'
+
+      - name: Ajustar propiedades de compilación (arquitectura clásica)
+        working-directory: ErpMipyme/android
+        run: |
+          sed -i 's/^newArchEnabled=.*/newArchEnabled=false/' gradle.properties || true
+          grep -E 'newArchEnabled|hermesEnabled|reactNativeArchitectures' gradle.properties || true
+
+      - name: Compilar APK de producción (assembleRelease)
+        working-directory: ErpMipyme/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --stacktrace
+
+      - name: Preparar artefactos del APK
+        env:
+          ETIQUETA: ${{ github.event.inputs.etiqueta }}
+        run: |
+          mkdir -p artefactos
+          cp ErpMipyme/android/app/build/outputs/apk/release/app-release.apk "artefactos/erp-mipyme-${ETIQUETA}-android.apk"
+          cd artefactos
+          sha256sum *.apk > "erp-mipyme-${ETIQUETA}-android-SHA256SUMS.txt"
+          echo '=== Artefactos del APK ==='
+          ls -la
+          cat *SHA256SUMS.txt
+
+      - name: Adjuntar APK a la release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.etiqueta }}
+          files: artefactos/*
+
+      - name: Conservar APK como artefacto del flujo de trabajo
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-mipyme-apk-android
+          path: artefactos/*.apk
+          retention-days: 30

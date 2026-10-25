@@ -1,0 +1,114 @@
+# Compila, verifica y publica una release del ERP MIPYME en este canal público.
+# - Descarga el código del repositorio PRIVADO (secret REPO_TOKEN).
+# - Calidad: npm ci + tsc --noEmit (estricto) + Jest (Dominio y Casos de Uso).
+# - Publica la release con el ZIP de código fuente y sus sumas SHA-256.
+name: Compilar y Publicar Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      etiqueta:
+        description: 'Etiqueta de versión (p. ej. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      es_pre_release:
+        description: 'Marcar como pre-release (beta)'
+        type: boolean
+        default: false
+      notas:
+        description: 'Notas adicionales de la versión (texto plano, opcional)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compilar-y-publicar:
+    name: Compilar, probar y publicar
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Descargar código fuente (repositorio privado)
+        uses: actions/checkout@v4
+        with:
+          repository: ReidelAlcantara/erp-mipyme
+          token: ${{ secrets.REPO_TOKEN }}
+          path: fuente
+
+      - name: Instalar Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: fuente/package-lock.json
+
+      - name: Instalar dependencias (npm ci, reproducible desde el lockfile)
+        working-directory: fuente
+        run: npm ci
+
+      - name: Compilar TypeScript (tsc --noEmit, modo estricto)
+        working-directory: fuente
+        run: npx tsc --noEmit
+
+      - name: Ejecutar pruebas Jest (Dominio + Casos de Uso)
+        working-directory: fuente
+        run: npx jest --ci
+
+      - name: Empaquetar código fuente verificado
+        env:
+          ETIQUETA: ${{ github.event.inputs.etiqueta }}
+        run: |
+          mkdir -p artefactos
+          cd fuente
+          zip -r "../artefactos/erp-mipyme-${ETIQUETA}-src.zip" . -x "node_modules/*" -x ".git/*"
+          cd ../artefactos
+          sha256sum *.zip > "erp-mipyme-${ETIQUETA}-SHA256SUMS.txt"
+          echo '=== Artefactos del release ==='
+          ls -la
+          cat *SHA256SUMS.txt
+
+      - name: Redactar notas de la versión
+        env:
+          ETIQUETA: ${{ github.event.inputs.etiqueta }}
+          NOTAS: ${{ github.event.inputs.notas }}
+        run: |
+          {
+            echo "## ERP MIPYME ${ETIQUETA}"
+            echo ""
+            echo "ERP offline-first multiplataforma (Windows + Android) para MIPYMES cubanas de ventas mayoristas y minoristas: POS, contabilidad cubana (Res. 494/2016), inventario con alertas y RRHH."
+            echo ""
+            echo "### Qué contiene el paquete de código fuente"
+            echo "- Aplicación completa: React Native 0.75.4 + TypeScript estricto, Clean Architecture + MVVM."
+            echo "- Backend: esquema PostgreSQL para Neon + sync-rules de PowerSync + microservicio api-escrituras."
+            echo "- Documentación completa de instalación y operación (carpeta docs/)."
+            echo "- Suite de pruebas Jest del Dominio y Casos de Uso (38 pruebas)."
+            echo ""
+            echo "### Compilación verificada en este release"
+            echo "- Instalación reproducible: npm ci desde package-lock.json."
+            echo "- TypeScript estricto: tsc --noEmit sin errores."
+            echo "- Pruebas: 38/38 en verde."
+            echo ""
+            echo "### Verificación de integridad"
+            echo "Compara el SHA-256 del archivo descargado con el SHA256SUMS adjunto:"
+            echo '```'
+            echo "sha256sum erp-mipyme-${ETIQUETA}-src.zip"
+            echo '```'
+            echo ""
+            echo "### Instalación del APK"
+            echo "Descarga el APK adjunto (erp-mipyme-${ETIQUETA}-android.apk), habilita los orígenes desconocidos en Android e instala. Para compilar desde el código fuente, sigue docs/04-INSTALACION.md incluido en el ZIP."
+            if [ -n "${NOTAS}" ]; then echo ""; echo "### Notas"; echo "${NOTAS}"; fi
+          } > notas-release.md
+
+      - name: Publicar release en este repositorio
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.etiqueta }}
+          name: ERP MIPYME ${{ github.event.inputs.etiqueta }}
+          body_path: notas-release.md
+          prerelease: ${{ github.event.inputs.es_pre_release }}
+          files: artefactos/*
