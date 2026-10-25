@@ -2,7 +2,7 @@
 #
 # Estrategia (validada localmente paso a paso):
 # 1. Descarga el código del repositorio PRIVADO (secret REPO_TOKEN).
-# 2. Genera el proyecto base oficial de React Native 0.75.4 (CLI 14.1.2).
+# 2. Genera el proyecto base oficial de React Native 0.76.9 (CLI 15.x).
 # 3. Superpone el código del ERP (src/, configs, backend, docs) sobre la base.
 # 4. npm ci (lockfile reproducible) y firma de distribución desde secrets.
 # 5. ./gradlew assembleRelease -> APK firmado -> se adjunta a la release indicada.
@@ -45,8 +45,8 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Crear proyecto base React Native 0.75.4
-        run: npx -y @react-native-community/cli@14.1.2 init ErpMipyme --version 0.75.4 --skip-install --skip-git-init --pm npm
+      - name: Crear proyecto base React Native 0.76.9
+        run: npx -y @react-native-community/cli@15.1.3 init ErpMipyme --version 0.76.9 --skip-install --skip-git-init --pm npm
 
       - name: Superponer el código del ERP sobre la base
         run: |

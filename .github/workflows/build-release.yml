@@ -83,7 +83,7 @@ jobs:
             echo "ERP offline-first multiplataforma (Windows + Android) para MIPYMES cubanas de ventas mayoristas y minoristas: POS, contabilidad cubana (Res. 494/2016), inventario con alertas y RRHH."
             echo ""
             echo "### Qué contiene el paquete de código fuente"
-            echo "- Aplicación completa: React Native 0.75.4 + TypeScript estricto, Clean Architecture + MVVM."
+            echo "- Aplicación completa: React Native 0.76.9 + TypeScript estricto, Clean Architecture + MVVM."
             echo "- Backend: esquema PostgreSQL para Neon + sync-rules de PowerSync + microservicio api-escrituras."
             echo "- Documentación completa de instalación y operación (carpeta docs/)."
             echo "- Suite de pruebas Jest del Dominio y Casos de Uso (38 pruebas)."

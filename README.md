@@ -20,7 +20,7 @@ intermitente — y sincronizarse de forma transparente cuando hay red:
 | **Seguridad** | Usuarios + PIN, roles: Admin / Dependiente / Económico / Almacenero |
 | **Sincronización** | SQLite local (op-sqlite) ↔ PowerSync ↔ PostgreSQL en Neon |
 
-Tecnología: React Native 0.75 + TypeScript estricto, Clean Architecture +
+Tecnología: React Native 0.76 + TypeScript estricto, Clean Architecture +
 MVVM, PowerSync, estilo visual "futuro neón".
 
 ## 📥 Descargas
@@ -56,7 +56,7 @@ Este repositorio contiene dos flujos de trabajo de GitHub Actions
    `tsc --noEmit` en modo estricto, suite Jest de Dominio + Casos de Uso),
    empaqueta el código fuente y publica la release con sus sumas SHA-256.
 2. **Compilar APK Android** — monta el proyecto Android sobre la base
-   oficial de React Native 0.75.4, compila con Gradle (`assembleRelease`)
+   oficial de React Native 0.76.9, compila con Gradle (`assembleRelease`)
    y firma el APK con la clave de distribución del proyecto.
 
 ## 📱 Instalación del APK
