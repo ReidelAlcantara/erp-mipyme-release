@@ -1,0 +1,194 @@
+# Compila la aplicación de ESCRITORIO (Windows) del ERP MIPYME y la adjunta a la release.
+#
+# Estrategia (misma filosofía validada del flujo del APK):
+# 1. Descarga el código del repositorio PRIVADO (secret REPO_TOKEN).
+#    El proyecto nativo Windows (UWP C++, react-native-windows 0.76.17, Hermes)
+#    ya está commitado en windows/: scaffolding init-windows + certificado de
+#    firma MSIX autofirmado y estable (CN=ErpMipyme).
+# 2. npm ci (lockfile reproducible): instala react-native-windows desde fuente.
+# 3. MSBuild Release x64: compila la app + framework RNW, genera el bundle JS
+#    (Metro -> bytecode Hermes, validado: ~1.9 MB) y empaqueta + firma el MSIX
+#    en modo SideLoad.
+# 4. Adjunta MSIX + certificado + instrucciones + SHA256 a la release indicada.
+name: Compilar App de Escritorio Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      etiqueta:
+        description: 'Etiqueta de la release donde adjuntar el MSIX (p. ej. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+
+permissions:
+  contents: write
+
+jobs:
+  windows-msix:
+    name: Construir MSIX de escritorio (x64)
+    runs-on: windows-latest
+    timeout-minutes: 150
+    steps:
+      - name: Descargar código fuente (repositorio privado)
+        uses: actions/checkout@v4
+        with:
+          repository: ReidelAlcantara/erp-mipyme
+          token: ${{ secrets.REPO_TOKEN }}
+          path: fuente
+
+      - name: Habilitar rutas largas de Windows (MAX_PATH)
+        shell: powershell
+        run: |
+          New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+            -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force | Out-Null
+          git config --system core.longpaths true
+          Write-Host "LongPathsEnabled activado."
+
+      - name: Instalar Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: fuente/package-lock.json
+
+      - name: Instalar dependencias (npm ci)
+        working-directory: fuente
+        run: npm ci
+
+      - name: Preparar MSBuild (Visual Studio 2022)
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Compilar, empaquetar y firmar MSIX (MSBuild Release x64)
+        working-directory: fuente
+        shell: powershell
+        run: >
+          msbuild "windows\ErpMipyme.sln"
+          /p:Configuration=Release
+          /p:Platform=x64
+          /p:AppxBundle=Never
+          /p:UapAppxPackageBuildMode=SideLoad
+          /p:AppxPackageSigningEnabled=true
+          /p:PackageCertificateKeyFile=ErpMipyme_TemporaryKey.pfx
+          /p:PackageCertificatePassword=ErpMipyme2026
+          /p:AppxPackageDir=..\..\GHA-Appx
+          /m /nologo /verbosity:minimal
+
+      - name: Recopilar, nombrar y documentar artefactos
+        shell: powershell
+        env:
+          ETIQUETA: ${{ github.event.inputs.etiqueta }}
+        run: |
+          $msix = Get-ChildItem -Path "fuente\GHA-Appx" -Recurse -Filter "*.msix" | Select-Object -First 1
+          if (-not $msix) { throw "No se generó ningún MSIX en fuente\GHA-Appx" }
+          Write-Host "MSIX generado: $($msix.FullName)"
+
+          New-Item -ItemType Directory -Force -Path "artefactos" | Out-Null
+          Copy-Item $msix.FullName "artefactos\erp-mipyme-$env:ETIQUETA-windows-x64.msix"
+          Copy-Item "fuente\windows\ErpMipyme\ErpMipyme.cer" "artefactos\erp-mipyme-$env:ETIQUETA-certificado-firma.cer"
+
+          $instrucciones = @'
+          # ERP MIPYME - Instalación en Windows (escritorio)
+
+          Versión: __ETIQUETA__ | Arquitectura: x64 (64 bits)
+
+          ## Requisitos
+
+          - Windows 10 (1809 o superior) o Windows 11, de 64 bits.
+          - Permisos de administrador solo para instalar el certificado (paso 1).
+
+          ## Paso 1 - Instalar el certificado de firma
+
+          La app se distribuye fuera de la Microsoft Store con un certificado
+          autofirmado. Antes de instalar el MSIX hay que marcar ese certificado
+          como de confianza:
+
+          1. Haz doble clic en `erp-mipyme-__ETIQUETA__-certificado-firma.cer`.
+          2. Pulsa "Instalar certificado...".
+          3. Ubicación del almacén: **Equipo local** (pedirá permisos de administrador).
+          4. Selecciona "Colocar todos los certificados en el siguiente almacén".
+          5. Pulsa "Examinar..." y elige **Personas de confianza**.
+          6. Finaliza el asistente.
+
+          Alternativa (PowerShell como administrador):
+
+          ```powershell
+          Import-Certificate -FilePath .\erp-mipyme-__ETIQUETA__-certificado-firma.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+          ```
+
+          ## Paso 2 - Instalar la aplicación
+
+          Haz doble clic en `erp-mipyme-__ETIQUETA__-windows-x64.msix` y pulsa
+          "Instalar".
+
+          Alternativa (PowerShell):
+
+          ```powershell
+          Add-AppxPackage -Path .\erp-mipyme-__ETIQUETA__-windows-x64.msix
+          ```
+
+          ## Verificación de integridad (opcional)
+
+          Compara el SHA-256 del archivo descargado con el listado
+          `erp-mipyme-__ETIQUETA__-windows-SHA256SUMS.txt`:
+
+          ```powershell
+          Get-FileHash .\erp-mipyme-__ETIQUETA__-windows-x64.msix -Algorithm SHA256
+          ```
+
+          ## Notas de esta compilación
+
+          - Producción: React Native 0.76.9 + react-native-windows 0.76.17 (UWP,
+            C++, arquitectura clásica) con motor Hermes y TypeScript estricto.
+          - El mismo certificado firma todas las versiones: las actualizaciones
+            futuras no requieren reinstalar el certificado.
+          - Estado experimental: la sincronización de datos (PowerSync sobre
+            op-sqlite) y la impresión ESC/POS dependen de módulos nativos con
+            soporte establecido actualmente en Android. En Windows la aplicación
+            instala y presenta la interfaz completa; la capa local de datos se
+            activará cuando esos módulos nativos estén disponibles para Windows.
+          '@
+          $instrucciones = $instrucciones -replace '__ETIQUETA__', $env:ETIQUETA
+          $instrucciones | Out-File -Encoding utf8 "artefactos\INSTRUCCIONES-INSTALACION-WINDOWS.md"
+
+          $sumas = Get-ChildItem "artefactos\erp-mipyme-*.msix", "artefactos\erp-mipyme-*.cer" |
+            ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)" }
+          $sumas | Out-File -Encoding ascii "artefactos\erp-mipyme-$env:ETIQUETA-windows-SHA256SUMS.txt"
+
+          Write-Host "=== Artefactos de la app de escritorio ==="
+          Get-ChildItem "artefactos" | Format-Table Name, Length -AutoSize
+
+      - name: Adjuntar MSIX, certificado e instrucciones a la release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.etiqueta }}
+          files: artefactos/*
+
+      - name: Añadir sección de Windows a las notas de la release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ETIQUETA: ${{ github.event.inputs.etiqueta }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh api "repos/$REPO/releases/tags/$ETIQUETA" --jq .body > cuerpo-actual.md
+          if grep -q "App de escritorio (Windows)" cuerpo-actual.md; then
+            echo "Las notas ya incluyen la sección de Windows; no se modifican."
+            exit 0
+          fi
+          cat >> cuerpo-actual.md <<EOF
+
+          ### App de escritorio (Windows)
+
+          - Descarga "erp-mipyme-$ETIQUETA-windows-x64.msix" junto a "erp-mipyme-$ETIQUETA-certificado-firma.cer".
+          - Instala primero el certificado (Equipo local, almacén "Personas de confianza") y después el MSIX.
+          - Guía completa en el archivo adjunto INSTRUCCIONES-INSTALACION-WINDOWS.md.
+          - Nota: compilación experimental; la sincronización de datos y la impresión ESC/POS usan módulos nativos con soporte establecido actualmente en Android.
+          EOF
+          gh release edit "$ETIQUETA" --notes-file cuerpo-actual.md
+
+      - name: Conservar MSIX como artefacto del flujo de trabajo
+        uses: actions/upload-artifact@v4
+        with:
+          name: erp-mipyme-msix-windows-x64
+          path: artefactos/*
+          retention-days: 30
